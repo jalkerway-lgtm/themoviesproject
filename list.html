@@ -89,6 +89,7 @@
         <select id="sortMode" onchange="renderMovies()">
             <option value="desire">Sort by: Total Demand (High to Low)</option>
             <option value="runtime">Sort by: Runtime (Shortest First)</option>
+            <option value="runtime_d">Sort by: Runtime (Longest First)</option>
             <option value="year">Sort by: Release Year</option>
             <option value="newest">Sort by: Date Added</option>
         </select>
@@ -161,6 +162,7 @@
                 if (sortMode === 'year') return (parseInt(b.release_year)||0) - (parseInt(a.release_year)||0);
                 if (sortMode === 'newest') return new Date(b.created_at) - new Date(a.created_at);
                 if (sortMode === 'runtime') return (a.runtime || 999) - (b.runtime || 999); 
+                if (sortMode === 'runtime_d') return (b.runtime || 999) - (a.runtime || 999); 
                 
                 // TOTAL Desire Sort: treat null as 0
                 const totalA = (a.desire_user_1 || 0) + (a.desire_user_2 || 0);

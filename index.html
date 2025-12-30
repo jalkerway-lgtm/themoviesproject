@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Movie</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; background: #f4f4f9; }
+        
+        .input-group { display: flex; gap: 10px; margin-bottom: 2rem; }
+        input[type="text"] { flex-grow: 1; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 10px 20px; cursor: pointer; background: #007bff; color: white; border: none; font-size: 16px; border-radius: 4px; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        
+        .nav { margin-bottom: 20px; }
+        .nav a { text-decoration: none; color: #007bff; font-weight: bold; }
+
+        /* SELECTION GRID */
+        .selection-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 15px; margin-top: 20px; }
+        .select-card { background: white; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; cursor: pointer; transition: 0.2s; text-align: center; padding-bottom: 10px;}
+        .select-card:hover { transform: translateY(-3px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-color: #007bff;}
+        .select-poster { width: 100%; height: 220px; object-fit: cover; background: #eee; }
+        .select-title { font-size: 0.9rem; font-weight: bold; margin: 10px 5px 0 5px; }
+        .select-year { font-size: 0.8rem; color: #666; margin-bottom: 10px; }
+        .select-btn { padding: 5px 15px; font-size: 0.8rem; }
+
+        /* DETAIL CARD */
+        .movie-card { border: 1px solid #ddd; background: white; padding: 20px; display: flex; gap: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .poster { width: 100px; height: 150px; background: #eee; object-fit: cover; border-radius: 4px;}
+        .details { flex-grow: 1; }
+
+        .user-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; }
+        .user-col { background: #f9f9f9; padding: 10px; border-radius: 6px; }
+        .user-col h4 { margin: 0 0 10px 0; font-size: 0.9rem; color: #555; text-transform: uppercase; }
+        
+        .control-row { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; font-size: 0.9rem; }
+        select { padding: 5px; border-radius: 4px; border: 1px solid #ccc; flex-grow: 1; }
+        
+        /* Notes Area */
+        .notes-area { margin-top: 20px; }
+        textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: sans-serif; box-sizing: border-box;}
+
+        .save-btn-container { margin-top: 20px; text-align: right; }
+    </style>
+</head>
+<body>
+
+    <div class="nav"><a href="list.html">← Go to Shared List</a></div>
+
+    <h2>Add Movie to Watchlist</h2>
+    
+    <div class="input-group">
+        <input type="text" id="movieSearch" placeholder="Enter movie title (e.g., Gladiator)">
+        <button onclick="searchMovie()">Search</button>
+    </div>
+
+    <div id="resultContainer"></div>
+
+    <script>
+        // --- YOUR KEYS ---
+        const TMDB_API_KEY = '8fdcf54ac01034fd8a004b18e6a0a38e'; 
+        const SUPABASE_URL = 'https://fuknzvmoqjsvsnyrdthd.supabase.co'; 
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1a256dm1vcWpzdnNueXJkdGhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwNTI3ODksImV4cCI6MjA4MjYyODc4OX0.JAF3L9Ci_NIcb_dbG5HnaxcftvjqJ3T1sMmlcBkOTsk'; 
+
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
+        const IMG_URL = 'https://image.tmdb.org/t/p/w200';
+
+        let currentMovieData = null;
+
+        async function searchMovie() {
+            const query = document.getElementById('movieSearch').value;
+            const container = document.getElementById('resultContainer');
+            if (!query) return alert("Please enter a title");
+            
+            container.innerHTML = '<p>Searching...</p>';
+
+            try {
+                const searchRes = await fetch(`${TMDB_BASE_URL}/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}`);
+                const searchData = await searchRes.json();
+                
+                if (!searchData.results || searchData.results.length === 0) {
+                    container.innerHTML = '<p>No movies found.</p>';
+                    return;
+                }
+
+                renderSelectionGrid(searchData.results);
+
+            } catch (error) {
+                console.error(error);
+                container.innerHTML = `<p style="color:red">Error: ${error.message}</p>`;
+            }
+        }
+
+        function renderSelectionGrid(movies) {
+            const list = movies.filter(m => m.poster_path);
+            
+            if (list.length === 0) {
+                document.getElementById('resultContainer').innerHTML = '<p>No matching movies found.</p>';
+                return;
+            }
+
+            const html = `
+                <p>Found ${list.length} results. Please select one:</p>
+                <div class="selection-grid">
+                    ${list.map(m => `
+                        <div class="select-card" onclick="fetchAndRenderDetails(${m.id})">
+                            <img src="${IMG_URL + m.poster_path}" class="select-poster">
+                            <div class="select-title">${m.title}</div>
+                            <div class="select-year">${m.release_date ? m.release_date.split('-')[0] : 'N/A'}</div>
+                            <button class="select-btn">Select</button>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            document.getElementById('resultContainer').innerHTML = html;
+        }
+
+        async function fetchAndRenderDetails(movieId) {
+            const container = document.getElementById('resultContainer');
+            container.innerHTML = '<p>Loading details...</p>';
+
+            try {
+                const detailRes = await fetch(`${TMDB_BASE_URL}/movie/${movieId}?api_key=${TMDB_API_KEY}&append_to_response=credits`);
+                const movie = await detailRes.json();
+                renderDetailCard(movie);
+            } catch(e) {
+                alert("Error fetching details");
+            }
+        }
+
+        function renderDetailCard(movie) {
+            const director = movie.credits.crew.find(person => person.job === 'Director')?.name || 'Unknown';
+            const genres = movie.genres.map(g => g.name).join(', ');
+            const year = movie.release_date ? movie.release_date.split('-')[0] : 'N/A';
+            const runtime = movie.runtime || 0; 
+
+            currentMovieData = {
+                title: movie.title,
+                release_year: year,
+                director: director,
+                genre: genres,
+                poster_path: movie.poster_path,
+                runtime: runtime 
+            };
+
+            const html = `
+                <div class="movie-card">
+                    <img src="${movie.poster_path ? IMG_URL + movie.poster_path : ''}" class="poster" alt="Poster">
+                    <div class="details">
+                        <h3>${movie.title} (${year})</h3>
+                        <p><strong>Director:</strong> ${director}</p>
+                        <p><strong>Runtime:</strong> ${runtime} mins</p>
+                        
+                        <div class="user-panel">
+                            <div class="user-col">
+                                <h4>Jason</h4>
+                                <div class="control-row">
+                                    <label>Desire:</label>
+                                    <select id="desire1">
+                                        <option value="3" selected>3 - High</option>
+                                        <option value="2">2 - Medium</option>
+                                        <option value="1">1 - Low</option>
+                                        <option value="">-- Ask Later --</option>
+                                    </select>
+                                </div>
+                                <div class="control-row">
+                                    <label><input type="checkbox" id="seen1"> Seen it?</label>
+                                </div>
+                            </div>
+
+                            <div class="user-col">
+                                <h4>CA</h4>
+                                <div class="control-row">
+                                    <label>Desire:</label>
+                                    <select id="desire2">
+                                        <option value="3">3 - High</option>
+                                        <option value="2">2 - Medium</option>
+                                        <option value="1">1 - Low</option>
+                                        <option value="" selected>-- Ask Later --</option>
+                                    </select>
+                                </div>
+                                <div class="control-row">
+                                    <label><input type="checkbox" id="seen2"> Seen it?</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="notes-area">
+                            <label style="font-weight:bold; font-size:0.9rem;">Shared Notes:</label>
+                            <textarea id="notesInput" rows="2" placeholder="Where is this streaming? Who recommended it?"></textarea>
+                        </div>
+
+                        <div class="save-btn-container">
+                            <button onclick="saveToDatabase()">Add to Shared List</button>
+                            <button onclick="searchMovie()" style="background:#6c757d; margin-left:10px;">Back to Search</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('resultContainer').innerHTML = html;
+        }
+
+        async function saveToDatabase() {
+            if (!currentMovieData) return;
+            const btn = document.querySelector('.save-btn-container button');
+            
+            // DUPLICATE CHECK
+            const { data: existing } = await supabaseClient
+                .from('watchlist')
+                .select('id')
+                .ilike('title', currentMovieData.title);
+
+            if (existing && existing.length > 0) {
+                const proceed = confirm(`Warning: "${currentMovieData.title}" is already on the list. Add it anyway?`);
+                if (!proceed) return;
+            }
+
+            btn.innerText = "Saving...";
+
+            const d1 = document.getElementById('desire1').value;
+            const s1 = document.getElementById('seen1').checked;
+            const d2 = document.getElementById('desire2').value;
+            const s2 = document.getElementById('seen2').checked;
+            const notes = document.getElementById('notesInput').value;
+
+            const payload = {
+                ...currentMovieData,
+                desire_user_1: d1 === "" ? null : parseInt(d1),
+                seen_user_1: s1,
+                desire_user_2: d2 === "" ? null : parseInt(d2),
+                seen_user_2: s2,
+                notes: notes // Save notes
+            };
+
+            const { data, error } = await supabaseClient
+                .from('watchlist')
+                .insert([payload])
+                .select();
+
+            if (error) {
+                alert('Error: ' + error.message);
+                btn.innerText = "Add to Shared List";
+            } else {
+                alert(`"${currentMovieData.title}" added!`);
+                document.getElementById('resultContainer').innerHTML = '';
+                document.getElementById('movieSearch').value = '';
+                currentMovieData = null;
+            }
+        }
+    </script>
+</body>
+</html>

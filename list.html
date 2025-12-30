@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Shared Watchlist</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; background: #f4f4f9; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+        a.btn { text-decoration: none; background: #007bff; color: white; padding: 10px 20px; border-radius: 4px; }
+        
+        .toolbar { background: white; padding: 15px; border-radius: 8px; display: flex; gap: 15px; margin-bottom: 20px; align-items: center; flex-wrap: wrap;}
+        .toolbar input, .toolbar select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; }
+        
+        /* CARD LAYOUT */
+        .card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: flex; flex-direction: column; position: relative; }
+        
+        .delete-btn { position: absolute; top: 5px; right: 5px; background: rgba(0,0,0,0.05); border: none; color: #999; cursor: pointer; border-radius: 50%; width: 25px; height: 25px; font-weight: bold; line-height: 1; z-index: 10; }
+        .delete-btn:hover { background: #dc3545; color: white; }
+
+        .card-main { display: flex; }
+        .poster { width: 100px; object-fit: cover; background: #eee; min-height: 150px;}
+        
+        .info { padding: 15px; flex-grow: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start; }
+        .info h3 { margin: 0 0 5px 0; font-size: 1.1rem; line-height: 1.2; padding-right: 20px;}
+        .meta { font-size: 0.8rem; color: #666; margin-bottom: 3px; }
+
+        .status-area { display: flex; border-left: 1px solid #eee; width: 120px; flex-shrink: 0; }
+        .user-status { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 5px; text-align: center; }
+        .user-status:first-child { border-right: 1px solid #eee; background: #fdfdfd; }
+        .user-status:last-child { background: #f4f4f9; }
+
+        .u-label { font-size: 0.65rem; font-weight: bold; color: #888; text-transform: uppercase; }
+        
+        .desire-select { 
+            font-size: 0.75rem; font-weight: bold; color: white; border: none; padding: 4px 6px; border-radius: 4px; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; width: 40px;
+        }
+        .desire-select:focus { outline: none; box-shadow: 0 0 0 2px rgba(0,0,0,0.1); }
+        
+        .d-3 { background-color: #dc3545; } /* High */
+        .d-2 { background-color: #ffc107; color: #333; } /* Med */
+        .d-1 { background-color: #28a745; } /* Low */
+        .d-null { background-color: #adb5bd; } /* None */
+
+        input[type="checkbox"] { transform: scale(1.2); cursor: pointer; }
+
+        /* Notes Area Styling */
+        .card-notes { border-top: 1px solid #eee; padding: 0; }
+        .notes-input { width: 100%; border: none; padding: 8px 12px; font-family: sans-serif; font-size: 0.85rem; background: #fafafa; resize: vertical; min-height: 40px; box-sizing: border-box; color: #555;}
+        .notes-input:focus { outline: none; background: #fff; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Our Watchlist</h1>
+        <a href="index.html" class="btn">Add New Movie</a>
+    </header>
+
+    <div class="toolbar">
+        <input type="text" id="filterText" placeholder="Filter..." onkeyup="renderMovies()">
+        <select id="sortMode" onchange="renderMovies()">
+            <option value="desire">Sort by: Total Demand (High to Low)</option>
+            <option value="runtime">Sort by: Runtime (Shortest First)</option>
+            <option value="year">Sort by: Release Year</option>
+            <option value="newest">Sort by: Date Added</option>
+        </select>
+        <label style="display:flex; align-items:center; gap:5px;">
+            <input type="checkbox" id="hideSeen" onchange="renderMovies()"> Hide if BOTH seen
+        </label>
+    </div>
+
+    <div id="movieGrid" class="grid">
+        <p>Loading...</p>
+    </div>
+
+    <script>
+        // --- YOUR KEYS ---
+        const SUPABASE_URL = 'https://fuknzvmoqjsvsnyrdthd.supabase.co'; 
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1a256dm1vcWpzdnNueXJkdGhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwNTI3ODksImV4cCI6MjA4MjYyODc4OX0.JAF3L9Ci_NIcb_dbG5HnaxcftvjqJ3T1sMmlcBkOTsk'; 
+
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const IMG_URL = 'https://image.tmdb.org/t/p/w200';
+
+        let allMovies = []; 
+
+        async function fetchMovies() {
+            let { data, error } = await supabaseClient
+                .from('watchlist')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error(error);
+                document.getElementById('movieGrid').innerHTML = '<p>Error loading list.</p>';
+            } else {
+                allMovies = data;
+                renderMovies();
+            }
+        }
+
+        function formatRuntime(minutes) {
+            if (!minutes) return '';
+            const h = Math.floor(minutes / 60);
+            const m = minutes % 60;
+            return `${h}h ${m}m`;
+        }
+
+        function getDesireClass(val) {
+            if (!val) return 'd-null';
+            return `d-${val}`;
+        }
+
+        function renderMovies() {
+            const container = document.getElementById('movieGrid');
+            const filterText = document.getElementById('filterText').value.toLowerCase();
+            const sortMode = document.getElementById('sortMode').value;
+            const hideSeen = document.getElementById('hideSeen').checked;
+
+            if (allMovies.length === 0) {
+                container.innerHTML = "<p>No movies yet.</p>";
+                return;
+            }
+
+            // A. Filter
+            let filtered = allMovies.filter(m => {
+                if (hideSeen && m.seen_user_1 && m.seen_user_2) return false;
+                const searchStr = `${m.title || ''} ${m.director || ''} ${m.genre || ''}`.toLowerCase();
+                return searchStr.includes(filterText);
+            });
+
+            // B. Sort
+            filtered.sort((a, b) => {
+                if (sortMode === 'year') return (parseInt(b.release_year)||0) - (parseInt(a.release_year)||0);
+                if (sortMode === 'newest') return new Date(b.created_at) - new Date(a.created_at);
+                if (sortMode === 'runtime') return (a.runtime || 999) - (b.runtime || 999); 
+                
+                // TOTAL Desire Sort: treat null as 0
+                const totalA = (a.desire_user_1 || 0) + (a.desire_user_2 || 0);
+                const totalB = (b.desire_user_1 || 0) + (b.desire_user_2 || 0);
+                return totalB - totalA; 
+            });
+
+            // C. Build HTML
+            container.innerHTML = filtered.map(m => `
+                <div class="card" id="card-${m.id}">
+                    <button class="delete-btn" onclick="deleteMovie(${m.id})" title="Remove Movie">×</button>
+                    
+                    <div class="card-main">
+                        <img src="${m.poster_path ? IMG_URL + m.poster_path : ''}" class="poster">
+                        
+                        <div class="info">
+                            <h3>${m.title}</h3>
+                            <div class="meta">${m.release_year} • ${m.director}</div>
+                            <div class="meta">${formatRuntime(m.runtime)}</div>
+                            <div class="meta" style="font-style:italic;">${m.genre}</div>
+                        </div>
+
+                        <div class="status-area">
+                            <div class="user-status">
+                                <span class="u-label">Jason</span>
+                                <select class="desire-select ${getDesireClass(m.desire_user_1)}" 
+                                    onchange="updateMovie(${m.id}, 'desire_user_1', this.value, this)">
+                                    <option value="" ${m.desire_user_1 ? '' : 'selected'}>?</option>
+                                    <option value="3" ${m.desire_user_1 == 3 ? 'selected' : ''}>3</option>
+                                    <option value="2" ${m.desire_user_1 == 2 ? 'selected' : ''}>2</option>
+                                    <option value="1" ${m.desire_user_1 == 1 ? 'selected' : ''}>1</option>
+                                </select>
+                                <input type="checkbox" ${m.seen_user_1 ? 'checked' : ''} 
+                                    title="Seen by Jason?" 
+                                    onchange="updateMovie(${m.id}, 'seen_user_1', this.checked)">
+                            </div>
+                            <div class="user-status">
+                                <span class="u-label">CA</span>
+                                <select class="desire-select ${getDesireClass(m.desire_user_2)}" 
+                                    onchange="updateMovie(${m.id}, 'desire_user_2', this.value, this)">
+                                    <option value="" ${m.desire_user_2 ? '' : 'selected'}>?</option>
+                                    <option value="3" ${m.desire_user_2 == 3 ? 'selected' : ''}>3</option>
+                                    <option value="2" ${m.desire_user_2 == 2 ? 'selected' : ''}>2</option>
+                                    <option value="1" ${m.desire_user_2 == 1 ? 'selected' : ''}>1</option>
+                                </select>
+                                <input type="checkbox" ${m.seen_user_2 ? 'checked' : ''} 
+                                    title="Seen by CA?"
+                                    onchange="updateMovie(${m.id}, 'seen_user_2', this.checked)">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-notes">
+                        <textarea class="notes-input" placeholder="Add notes..." 
+                        onchange="updateMovie(${m.id}, 'notes', this.value)">${m.notes || ''}</textarea>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function updateMovie(id, field, value, element = null) {
+            console.log(`Updating ID ${id}: Set ${field} to ${value}`);
+            if (value === "") value = null;
+
+            if (element && field.includes('desire')) {
+                element.className = `desire-select ${getDesireClass(value)}`;
+            }
+
+            const { error } = await supabaseClient
+                .from('watchlist')
+                .update({ [field]: value })
+                .eq('id', id);
+
+            if (error) {
+                alert("Save failed!");
+            } else {
+                const movieIndex = allMovies.findIndex(m => m.id === id);
+                if (movieIndex > -1) {
+                    allMovies[movieIndex][field] = value;
+                }
+            }
+        }
+
+        async function deleteMovie(id) {
+            if (!confirm("Are you sure you want to delete this movie from the list?")) return;
+
+            const { error } = await supabaseClient
+                .from('watchlist')
+                .delete()
+                .eq('id', id);
+
+            if (error) {
+                alert("Error deleting: " + error.message);
+            } else {
+                allMovies = allMovies.filter(m => m.id !== id);
+                renderMovies();
+            }
+        }
+
+        fetchMovies();
+    </script>
+</body>
+</html>
